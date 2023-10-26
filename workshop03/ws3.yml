@@ -1,0 +1,134 @@
+---
+# Create namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: myns
+  labels:
+    app: code
+
+---
+# Config
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: code-config
+  namespace: myns
+data:
+  TZ: Asia/Singapore
+  DEFAULT_WORKSPACE: /config/workspace
+  PROXY_DOMAIN: code-139.59.219.11.nip.io
+
+---
+# Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: code-secret
+  namespace: myns
+  labels:
+    app: bgg
+type: Opaque
+data:
+  PASSWORD: cGFzc3dvcmQ=
+  SUDO_PASSWORD: cGFzc3dvcmQ=
+
+---
+# PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: code-pvc
+  namespace: myns
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: do-block-storage
+
+---
+# Deployment with 1 pod
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-deploy
+  namespace: myns
+  labels:
+    app: code
+    name: code-deploy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: code
+      name: code-po
+  template:
+    metadata:
+      name: code-po
+      labels:
+        app: code
+        name: code-po
+    spec:
+      volumes:
+        - name: data-vol
+          persistentVolumeClaim:
+            claimName: code-pvc
+      containers:
+        - name: code-container
+          image: linuxserver/code-server
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: code-config
+            - secretRef:
+                name: code-secret
+          ports:
+            - containerPort: 8443
+          volumeMounts:
+            - name: data-vol
+              mountPath: /config/workspace
+
+---
+# CluserIP service
+apiVersion: v1
+kind: Service
+metadata:
+  name: code-svc
+  namespace: myns
+  labels:
+    app: code
+    name: code-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: code
+    name: code-po
+  ports:
+    - port: 8443
+      targetPort: 8443
+
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: code-ing
+  namespace: myns
+  labels:
+    app: code
+    name: code-ing
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: code-139.59.219.11.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: code-svc
+                port:
+                  number: 8443
